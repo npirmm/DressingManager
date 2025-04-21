@@ -53,10 +53,13 @@ spl_autoload_register(function ($class) {
 // --- Use Statements (Declare classes we'll use) ---
 use App\Core\Database;
 use App\Models\User;
+use App\Models\RememberToken; 
 use App\Controllers\AuthController;
 use App\Controllers\UserController; // Added for profile page
 use App\Utils\Auth;         // Added for checking login status
 use App\Utils\Security;     // Added for CSRF token in logout form on home page
+use DateTime;             // <-- Make sure this is included
+use DateInterval;    
 
 // --- Database Connection ---
 try {
@@ -125,6 +128,97 @@ if ($userCount === 0) {
     echo "<h1>Application Error</h1><p>Could not verify application status due to a database issue. Please try again later.</p>";
     exit;
 }
+
+// ********************************************************************
+// --- Remember Me Cookie Check (Add this block BEFORE standard routing) ---
+// ********************************************************************
+if (!Auth::isLoggedIn() && isset($_COOKIE['remember_me'])) {
+    error_log("Remember me cookie found, attempting auto-login."); // Debug logging
+    list($selector, $validator) = explode(':', $_COOKIE['remember_me'], 2);
+
+    if ($selector && $validator) {
+        $tokenModel = new RememberToken(); // Instantiate locally or ensure it's available
+        $userModel = new User(); // Ensure UserModel is available
+
+        $tokenData = $tokenModel->findBySelector($selector);
+
+        if ($tokenData && password_verify($validator, $tokenData['hashed_validator'])) {
+            // Token is valid! Log the user in.
+            error_log("Remember me token VALID for selector: " . $selector); // Debug logging
+
+            $user = $userModel->findUserById($tokenData['user_id']); // Need findUserById method in User model
+
+            if ($user && empty($user['deleted_at'])) { // Check if user exists and is active
+                 // Regenerate session ID
+                 session_regenerate_id(true);
+                 // Regenerate CSRF token
+                 Security::generateCsrfToken('csrf_token');
+
+                 // Store user data in session (similar to handleLogin)
+                 $_SESSION['user_id'] = $user['id'];
+                 $_SESSION['user_name'] = $user['name'];
+                 $_SESSION['user_email'] = $user['email'];
+                 $_SESSION['user_role_id'] = $user['role_id'];
+                 $_SESSION['user_role_name'] = $user['role_name']; // Assuming findUserById returns role_name
+                 $_SESSION['last_login'] = time();
+
+                 // --- Security Enhancement: Token Rotation (Optional but Recommended) ---
+                 // Generate a new validator, update DB, and reissue cookie
+                 try {
+                     $newValidator = bin2hex(random_bytes(32));
+                     $newHashedValidator = password_hash($newValidator, PASSWORD_DEFAULT);
+                     $expires = new DateTime($tokenData['expires_at']); // Use existing expiry
+
+                     if ($tokenModel->updateValidator($selector, $newHashedValidator, $expires)) {
+                         $newCookieValue = $selector . ':' . $newValidator;
+                         setcookie('remember_me', $newCookieValue, [
+                             'expires' => $expires->getTimestamp(), 'path' => '/', 'domain' => '',
+                             'secure' => isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on',
+                             'httponly' => true, 'samesite' => 'Lax'
+                         ]);
+                         error_log("Remember me token ROTATED for selector: " . $selector); // Debug logging
+                     } else {
+                          error_log("Failed to UPDATE remember token validator during rotation for selector: " . $selector);
+                          // If update fails, maybe delete the token for safety?
+                          // $tokenModel->deleteBySelector($selector);
+                          // setcookie('remember_me', '', ['expires' => time() - 3600, ...]); // Clear cookie
+                     }
+                 } catch (\Exception $e) {
+                      error_log("Error rotating remember me token: " . $e->getMessage());
+                 }
+                 // --- End Token Rotation ---
+
+                 // Redirect to the current page (or intended URL) to refresh state
+                 // Avoids potential issues if routing continues directly after setting session
+                  header("Location: " . $_SERVER['REQUEST_URI']); // Redirect to the same URL
+                 exit;
+
+            } else {
+                 // User associated with token not found or is inactive
+                 error_log("User (ID: {$tokenData['user_id']}) not found or inactive for valid remember token (Selector: $selector). Cleaning up.");
+                 $tokenModel->deleteBySelector($selector);
+                 setcookie('remember_me', '', ['expires' => time() - 3600, 'path' => '/', 'domain' => '', 'secure' => isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on', 'httponly' => true, 'samesite' => 'Lax']);
+                 unset($_COOKIE['remember_me']);
+            }
+
+        } else {
+             // Invalid token (not found, expired, or validator mismatch)
+             error_log("Remember me token INVALID or expired for selector: " . $selector . ". Clearing cookie."); // Debug logging
+             $tokenModel->deleteBySelector($selector); // Delete from DB if found but invalid
+             setcookie('remember_me', '', ['expires' => time() - 3600, 'path' => '/', 'domain' => '', 'secure' => isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on', 'httponly' => true, 'samesite' => 'Lax']);
+             unset($_COOKIE['remember_me']);
+        }
+    } else {
+        // Cookie format is wrong, clear it
+         error_log("Remember me cookie format invalid. Clearing cookie."); // Debug logging
+         setcookie('remember_me', '', ['expires' => time() - 3600, 'path' => '/', 'domain' => '', 'secure' => isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on', 'httponly' => true, 'samesite' => 'Lax']);
+         unset($_COOKIE['remember_me']);
+    }
+}
+// ********************************************************************
+// --- End Remember Me Cookie Check ---
+// ********************************************************************
+
 
 // --- Standard Routing (if users exist) ---
 switch ($route) {

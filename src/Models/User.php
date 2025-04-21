@@ -109,6 +109,29 @@ class User {
         }
     }
 
+    /**
+     * Find a user by their ID.
+     * Includes the role name.
+     *
+     * @param int $id The user ID to search for.
+     * @return array|false User data as an associative array, or false if not found.
+     */
+    public function findUserById(int $id): array|false {
+        $sql = "SELECT u.*, r.name as role_name
+                FROM users u
+                JOIN roles r ON u.role_id = r.id
+                WHERE u.id = :id";
+        try {
+            $stmt = $this->db->prepare($sql);
+            $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+            $stmt->execute();
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            return $user ?: false; // Return the user array or false if no row found
+        } catch (PDOException $e) {
+            error_log("Error finding user by ID ($id): " . $e->getMessage());
+            return false;
+        }
+    }
     // --- We will add more methods later ---
     // (e.g., findById, updateProfile, updatePassword, enable2FA, setRememberToken, etc.)
 }
