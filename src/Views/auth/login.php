@@ -53,9 +53,8 @@
             <button type="submit" class="btn btn-primary">Login</button>
         </div>
 
-        <div class="mt-3 text-center">
-             <?php // TODO: Add Forgot Password link later ?>
-            <!-- <a href="<?php echo APP_URL; ?>/forgot-password">Forgot Password?</a> -->
-        </div>
+         <div class="mt-3 text-center">
+             <a href="<?php echo APP_URL; ?>/forgot-password">Mot de passe oublié ?</a>
+         </div>
     </form>
 </div>

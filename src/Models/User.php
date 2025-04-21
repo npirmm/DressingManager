@@ -158,6 +158,35 @@ class User {
             return false;
         }
     }
+
+    /**
+     * Update the password for a specific user.
+     * Hashes the new password automatically.
+     *
+     * @param int $userId The ID of the user to update.
+     * @param string $newPassword The new plain text password.
+     * @return bool True on success, false on failure.
+     */
+    public function updatePassword(int $userId, string $newPassword): bool {
+        $hashedPassword = password_hash($newPassword, PASSWORD_DEFAULT);
+        if ($hashedPassword === false) {
+            error_log("Password hashing failed for user ID $userId during password update.");
+            return false;
+        }
+
+        // Optionally: Add an updated_at timestamp update if not automatic
+        $sql = "UPDATE users SET password = :password WHERE id = :id";
+        try {
+            $stmt = $this->db->prepare($sql);
+            $stmt->bindParam(':password', $hashedPassword);
+            $stmt->bindParam(':id', $userId, PDO::PARAM_INT);
+            return $stmt->execute();
+        } catch (PDOException $e) {
+            error_log("Error updating password for user ID $userId: " . $e->getMessage());
+            return false;
+        }
+    }
+
     // --- We will add more methods later ---
     // (e.g., findById, updateProfile, updatePassword, enable2FA, setRememberToken, etc.)
 }

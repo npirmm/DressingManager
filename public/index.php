@@ -1,6 +1,14 @@
 <?php
 // public/index.php
 
+
+/** FORCE ERROR DISPLAY FOR DEBUGGING - REMOVE LATER **/
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+/** END FORCE ERROR DISPLAY **/
+
+
 /**
  * Dressing Manager - Front Controller
  */
@@ -58,8 +66,10 @@ require_once __DIR__ . '/../vendor/autoload.php';
 use App\Core\Database;
 use App\Models\User;
 use App\Models\RememberToken; 
+use App\Models\PasswordReset;   
 use App\Controllers\AuthController;
 use App\Controllers\UserController; // Added for profile page
+use App\Controllers\PasswordController; 
 use App\Utils\Auth;         // Added for checking login status
 use App\Utils\Security;     // Added for CSRF token in logout form on home page
 use App\Utils\Mailer; // Now Mailer (and PHPMailer it uses) can be found
@@ -100,6 +110,7 @@ $requestMethod = $_SERVER['REQUEST_METHOD'];
 $userModel = new User(); // Needed to check user count
 $authController = new AuthController();
 $userController = new UserController(); // For profile route
+$passwordController = new PasswordController();
 
 // --- Initial Setup Check ---
 // This check runs before standard routing if no users exist
@@ -354,7 +365,28 @@ switch ($route) {
 			http_response_code(405); echo "Method Not Allowed";
 		}
     break; // Important!
-	
+
+    case '/forgot-password':
+        if ($requestMethod === 'GET') {
+            $passwordController->showForgotPasswordForm();
+        } elseif ($requestMethod === 'POST') {
+            $passwordController->handleForgotPassword();
+        } else {
+            http_response_code(405); echo "Method Not Allowed";
+        }
+        break; // Exit may happen inside controller
+
+    case '/reset-password':
+        if ($requestMethod === 'GET') {
+            // Token is expected as a query parameter
+            $passwordController->showResetForm();
+        } elseif ($requestMethod === 'POST') {
+            // Token is expected in the POST body (hidden input)
+            $passwordController->handleResetPassword();
+        } else {
+            http_response_code(405); echo "Method Not Allowed";
+        }
+        break; // Exit may happen inside controller	
 	
     // --- Add more application routes here as needed ---
     // Example:

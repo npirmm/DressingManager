@@ -6,7 +6,7 @@
  */
 
 define('APP_NAME', 'Dressing Manager');
-define('APP_URL', 'http://localhost/dressing-manager'); // IMPORTANT: Set this to your actual app URL (without trailing slash)
+define('APP_URL', 'https://dressing.nicp.be/public'); // IMPORTANT: Set this to your actual app URL (without trailing slash)
 define('APP_ENV', 'development'); // Set to 'production' in production environment
 define('SESSION_NAME', 'dressing_session'); // Name for the session cookie
 
