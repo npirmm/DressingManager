@@ -1,3 +1,5 @@
+<?php use App\Utils\Security; ?>
+
 <div class="auth-container">
     <h2 class="text-center mb-4"><?php echo htmlspecialchars($pageTitle); ?></h2>
 
@@ -28,7 +30,7 @@
 
 
     <form action="<?php echo APP_URL; ?>/login" method="POST">
-         <?php // TODO: Add CSRF token here later ?>
+        <?php echo Security::csrfInput(); // <-- Add CSRF hidden field ?>
 
         <div class="mb-3">
             <label for="email" class="form-label">Email Address</label>

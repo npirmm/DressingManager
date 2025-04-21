@@ -5,13 +5,17 @@
  * Dressing Manager - Front Controller
  */
 
-// Start the session (Make sure session settings are appropriate)
+// Start the session (Important: Must be called before any output)
 if (session_status() == PHP_SESSION_NONE) {
     session_set_cookie_params([
-        'lifetime' => 0, 'path' => '/', 'domain' => '',
-        'secure' => isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on',
-        'httponly' => true, 'samesite' => 'Lax'
+        'lifetime' => 0, // Expires when browser closes
+        'path' => '/',
+        'domain' => '', // Current domain
+        'secure' => isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on', // Only over HTTPS
+        'httponly' => true, // Prevent JS access
+        'samesite' => 'Lax' // CSRF mitigation
     ]);
+    // Use session name from config if defined, otherwise default
     session_name(defined('SESSION_NAME') ? SESSION_NAME : 'PHPSESSID');
     session_start();
 }
@@ -20,142 +24,220 @@ if (session_status() == PHP_SESSION_NONE) {
 require_once __DIR__ . '/../config/app.php';
 require_once __DIR__ . '/../config/database.php';
 
-// --- Autoloading (Basic PSR-4 simulation) ---
+// --- Autoloading (Basic PSR-4 Simulation) ---
 spl_autoload_register(function ($class) {
+    // Project-specific namespace prefix
     $prefix = 'App\\';
+    // Base directory for the namespace prefix
     $base_dir = __DIR__ . '/../src/';
+    // Does the class use the namespace prefix?
     $len = strlen($prefix);
-    if (strncmp($prefix, $class, $len) !== 0) { return; }
+    if (strncmp($prefix, $class, $len) !== 0) {
+        // No, move to the next registered autoloader
+        return;
+    }
+    // Get the relative class name
     $relative_class = substr($class, $len);
+    // Replace the namespace prefix with the base directory, replace namespace
+    // separators with directory separators in the relative class name, append
+    // with .php
     $file = $base_dir . str_replace('\\', '/', $relative_class) . '.php';
-    if (file_exists($file)) { require $file; }
+    // If the file exists, require it
+    if (file_exists($file)) {
+        require $file;
+    } else {
+         error_log("Autoloader failed to load class: " . $class . " (tried file: " . $file . ")");
+    }
 });
 
-// --- Use Statements ---
+// --- Use Statements (Declare classes we'll use) ---
 use App\Core\Database;
 use App\Models\User;
 use App\Controllers\AuthController;
+use App\Controllers\UserController; // Added for profile page
+use App\Utils\Auth;         // Added for checking login status
+use App\Utils\Security;     // Added for CSRF token in logout form on home page
 
 // --- Database Connection ---
 try {
-    $pdo = Database::getInstance(); // Ensure connection is attempted
+    $pdo = Database::getInstance(); // Ensure connection is attempted & ready
+} catch (\PDOException $e) {
+    // Database class handles logging and basic error message.
+    // No need to display header/footer if DB is down.
+    exit; // Stop script execution
 } catch (\Exception $e) {
-    exit; // Stop script execution if DB connection failed critically
+     // Catch other potential exceptions from Database class
+     error_log("Error initializing Database: " . $e->getMessage());
+     echo "A critical application error occurred. Please try again later.";
+     exit;
 }
 
-// --- Basic Routing ---
+
+// --- Simple Routing Logic ---
 $requestUri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-$appBasePath = parse_url(APP_URL, PHP_URL_PATH) ?? ''; // Get base path from APP_URL if nested
+// Handle cases where the app is in a subfolder
+$appBasePath = rtrim(parse_url(APP_URL, PHP_URL_PATH) ?? '', '/');
 $route = '/';
-if ($appBasePath && strpos($requestUri, $appBasePath) === 0) {
+if (!empty($appBasePath) && strpos($requestUri, $appBasePath) === 0) {
     $route = substr($requestUri, strlen($appBasePath));
 } else {
     $route = $requestUri;
 }
-if (empty($route)) {
-    $route = '/'; // Default route
-}
+// Ensure route starts with / and handle empty route
+$route = '/' . ltrim($route, '/');
 
 $requestMethod = $_SERVER['REQUEST_METHOD'];
 
-// --- Instantiate necessary classes ---
-$userModel = new User();
+// --- Instantiate Controllers ---
+$userModel = new User(); // Needed to check user count
 $authController = new AuthController();
+$userController = new UserController(); // For profile route
 
-// --- Route Definitions ---
-$userCount = $userModel->countUsers(); // Check if initial setup is needed
+// --- Initial Setup Check ---
+// This check runs before standard routing if no users exist
+$userCount = $userModel->countUsers();
 
-// Special case: Force setup if no users exist, regardless of requested route (except for the setup POST itself)
-if ($userCount === 0 && $route !== '/setup') {
-    // If GET request, show setup form. If POST, let it proceed to handleSetup below.
-    if ($requestMethod === 'GET') {
+if ($userCount === 0) {
+    // Only allow access to the setup routes if no users exist
+    if ($route === '/setup' && $requestMethod === 'GET') {
         $authController->showSetupForm();
         exit;
+    } elseif ($route === '/setup' && $requestMethod === 'POST') {
+        $authController->handleSetup();
+        exit;
+    } else {
+        // Redirect any other request to the setup page (GET)
+        // Avoid infinite redirect loop if setup itself fails critically
+         if ($route !== '/setup') {
+             header("Location: " . APP_URL . '/setup');
+             exit;
+         } else {
+              // If we are already on /setup GET but user count is 0, let showSetupForm handle it
+              // This case might occur if redirection happens before controller instantiation somehow
+              $authController->showSetupForm();
+              exit;
+         }
     }
-}
-if ($userCount === 0 && $route === '/setup' && $requestMethod === 'POST') {
-    $authController->handleSetup();
+} elseif ($userCount === -1) {
+    // Handle database error during user count
+    // Render a simple error page without full layout
+    http_response_code(500);
+    echo "<h1>Application Error</h1><p>Could not verify application status due to a database issue. Please try again later.</p>";
     exit;
 }
 
-// --- Normal Routing (if users exist or setup is being handled) ---
-if ($userCount > 0) {
-    switch ($route) {
-        case '/':
-        case '/login':
-            if ($requestMethod === 'GET') {
-                 // If logged in, redirect to dashboard (implement later)
-                 if (isset($_SESSION['user_id'])) {
-                     // Temp: Just show a welcome message
-                     require __DIR__ . '/../src/Views/layouts/header.php';
-                     echo '<div class="container mt-5">';
-                     echo '<h1>' . APP_NAME . '</h1>';
-                      if (isset($_SESSION['success_message'])) {
-                         echo '<div class="alert alert-success">' . htmlspecialchars($_SESSION['success_message']) . '</div>';
-                         unset($_SESSION['success_message']);
-                     }
-                     echo '<p>You are logged in as ' . htmlspecialchars($_SESSION['user_name']) . ' (' . htmlspecialchars($_SESSION['user_role_name']) . ').</p>';
-                     // Add logout link later
-                     echo '<a href="' . APP_URL . '/logout" class="btn btn-secondary">Logout</a>'; // Add logout route later
-                     echo '</div>';
-                     require __DIR__ . '/../src/Views/layouts/footer.php';
+// --- Standard Routing (if users exist) ---
+switch ($route) {
+    case '/':
+        if ($requestMethod === 'GET') {
+            if (Auth::isLoggedIn()) {
+                // User is logged in - Show simple welcome/dashboard placeholder
+                // The main navigation and user info are in the header layout
+                require __DIR__ . '/../src/Views/layouts/header.php';
+                echo '<div class="container mt-3">'; // Use mt-3 since header adds padding-top
 
-                 } else {
-                    $authController->showLoginForm();
+                // Display success message from session (e.g., after login)
+                 if (isset($_SESSION['success_message'])) {
+                    echo '<div class="alert alert-success alert-dismissible fade show" role="alert">'
+                         . htmlspecialchars($_SESSION['success_message'])
+                         . '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>';
+                    unset($_SESSION['success_message']);
                  }
-            } elseif ($requestMethod === 'POST' && ($route === '/login' || $route === '/')) { // Allow login POST to / or /login
-                 // Prevent logged-in users from accessing login POST
-                 if (isset($_SESSION['user_id'])) {
-                    header("Location: " . APP_URL . "/"); // Redirect home if already logged in
-                    exit;
+                // Display error message from session (e.g., failed logout CSRF)
+                 if (isset($_SESSION['error_message'])) {
+                     echo '<div class="alert alert-danger alert-dismissible fade show" role="alert">'
+                         . htmlspecialchars($_SESSION['error_message'])
+                         . '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>';
+                     unset($_SESSION['error_message']);
                  }
-                $authController->handleLogin();
+
+
+                echo '<h2>Welcome to your Dressing Manager Dashboard!</h2>';
+                echo '<p>This is the main application area (content to be added).</p>';
+                echo '<hr>';
+                echo '<p>Logged in as: ' . htmlspecialchars(Auth::role()) . '</p>';
+
+                // Example: Show logout form directly on this page as well (redundant with header, but for clarity)
+                /*
+                echo '<h4>Logout:</h4>';
+                echo '<form action="' . APP_URL . '/logout" method="POST" style="display: inline;">';
+                echo Security::csrfInput('csrf_token');
+                echo '<button type="submit" class="btn btn-warning">Logout Here Too</button>';
+                echo '</form>';
+                */
+
+                echo '</div>'; // Close container
+                require __DIR__ . '/../src/Views/layouts/footer.php';
             } else {
-                // Handle 405 Method Not Allowed
-                http_response_code(405);
-                echo "405 Method Not Allowed";
-            }
-            break;
-
-        case '/setup': // Should not be accessible if users exist
-             header("Location: " . APP_URL . "/login"); // Redirect to login
-             exit;
-
-        case '/logout': // Placeholder for logout
-            if ($requestMethod === 'GET') {
-                // Clear session data
-                $_SESSION = array(); // Clear all session variables
-                if (ini_get("session.use_cookies")) { // Delete the session cookie
-                    $params = session_get_cookie_params();
-                    setcookie(session_name(), '', time() - 42000,
-                        $params["path"], $params["domain"],
-                        $params["secure"], $params["httponly"]
-                    );
-                }
-                session_destroy(); // Destroy the session
-                header("Location: " . APP_URL . "/login"); // Redirect to login page
+                // User not logged in, redirect to login page
+                header("Location: " . APP_URL . '/login');
                 exit;
-            } else {
-                http_response_code(405); echo "405 Method Not Allowed";
             }
-            break;
+        } else {
+            // Handle other methods (POST, PUT, etc.) to '/' if needed, otherwise 405
+            http_response_code(405);
+            echo "405 Method Not Allowed on /";
+        }
+        break;
 
-        // Add more routes here later (e.g., /dashboard, /profile, /items, ...)
+    case '/login':
+        if ($requestMethod === 'GET') {
+            $authController->showLoginForm();
+        } elseif ($requestMethod === 'POST') {
+            $authController->handleLogin();
+        } else {
+            http_response_code(405); echo "405 Method Not Allowed";
+        }
+        break;
 
-        default:
-            // Handle 404 Not Found
-            http_response_code(404);
-            require __DIR__ . '/../src/Views/layouts/header.php';
-            echo '<div class="container mt-5"><h1>404 - Page Not Found</h1><p>The requested page could not be found.</p><a href="'.APP_URL.'/">Go Home</a></div>';
-            require __DIR__ . '/../src/Views/layouts/footer.php';
-            break;
-    }
-} elseif ($userCount === -1) {
-     // Handle database error during user count
-     require __DIR__ . '/../src/Views/layouts/header.php';
-     echo '<div class="container mt-5 alert alert-danger">Error connecting to the user database. Cannot proceed.</div>';
-     require __DIR__ . '/../src/Views/layouts/footer.php';
+    case '/logout': // Logout must be POST due to CSRF
+        if ($requestMethod === 'POST') {
+            $authController->logout(); // Handles CSRF validation inside
+        } else {
+            http_response_code(405); echo "405 Method Not Allowed (Logout requires POST)";
+        }
+        break; // exit() is called within logout()
+
+    case '/profile': // New route for user profile
+        if ($requestMethod === 'GET') {
+            // Auth::checkAuthentication(); // Authentication check is now inside the controller method
+            $userController->showProfile();
+        }
+        // Add POST handler later for profile updates
+        // elseif ($requestMethod === 'POST') { $userController->handleProfileUpdate(); }
+        else {
+            http_response_code(405); echo "405 Method Not Allowed";
+        }
+        break;
+
+    case '/setup': // This route should only be accessible when userCount is 0 (handled above)
+        // If we reach here, it means users exist, so setup is forbidden.
+        $_SESSION['error_message'] = "Setup is already complete.";
+        header("Location: " . APP_URL . '/login');
+        exit;
+
+    // --- Add more application routes here as needed ---
+    // Example:
+    // case '/items':
+    //     if ($requestMethod === 'GET') { $itemController->listItems(); }
+    //     break;
+    // case '/item/create':
+    //      if ($requestMethod === 'GET') { $itemController->showCreateForm(); }
+    //      elseif ($requestMethod === 'POST') { $itemController->handleCreateItem(); }
+    //      break;
+
+    default:
+        // Handle 404 Not Found for any other route
+        http_response_code(404);
+        // Load a simple 404 view using the standard layout
+        require __DIR__ . '/../src/Views/layouts/header.php';
+        echo '<div class="container mt-5 text-center">';
+        echo '<h1>404 - Page Not Found</h1>';
+        echo '<p>Sorry, the page you are looking for does not exist.</p>';
+        echo '<a href="' . APP_URL . '/" class="btn btn-primary">Go to Homepage</a>';
+        echo '</div>';
+        require __DIR__ . '/../src/Views/layouts/footer.php';
+        break;
 }
-
 
 // --- End of Script ---
