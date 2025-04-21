@@ -1,3 +1,5 @@
+<?php use App\Utils\Security; ?>
+
 <div class="auth-container">
     <h2 class="text-center mb-4"><?php echo htmlspecialchars($pageTitle); ?></h2>
     <p class="text-center text-muted">Create the first Superadministrator account.</p>
@@ -14,7 +16,7 @@
     <?php endif; ?>
 
     <form action="<?php echo APP_URL; ?>/setup" method="POST">
-        <?php // TODO: Add CSRF token here later ?>
+        <?php echo Security::csrfInput(); // <-- Add CSRF hidden field ?>
 
         <div class="mb-3">
             <label for="name" class="form-label">Full Name</label>
