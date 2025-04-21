@@ -43,10 +43,11 @@
         </div>
 
         <div class="mb-3 form-check">
-            <?php // TODO: Add "Remember Me" functionality ?>
-            <!-- <input type="checkbox" class="form-check-input" id="remember" name="remember"> -->
-            <!-- <label class="form-check-label" for="remember">Remember Me</label> -->
-        </div>
+             <?php // --- Remember Me Checkbox --- ?>
+             <input type="checkbox" class="form-check-input" id="remember" name="remember" value="1">
+             <label class="form-check-label" for="remember">Remember Me</label>
+             <?php // --------------------------- ?>
+         </div>
 
         <div class="d-grid">
             <button type="submit" class="btn btn-primary">Login</button>
