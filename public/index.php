@@ -315,8 +315,16 @@ switch ($route) {
         header("Location: " . APP_URL . '/login');
         exit;
 
+    case '/verify-email': // New route for handling email verification link
+        if ($requestMethod === 'GET') {
+            $authController->verifyEmail();
+        } else {
+            http_response_code(405); echo "Method Not Allowed";
+        }
+        break; // exit() is called within verifyEmail()
+		
 
-// --- Add inside the main switch ($route) ---
+// --- Pour tester l'envoi de mail ($route) ---
 	case '/test-email':
 		if ($requestMethod === 'GET') {
 			$mailer = new Mailer();
