@@ -24,8 +24,8 @@ return [
         'host' => getenv('SMTP_HOST') ?: 'sandbox.smtp.mailtrap.io', // Example: Mailtrap for testing
         'port' => getenv('SMTP_PORT') ?: 587,               // Example: Mailtrap port (can be 587 for TLS, 465 for SSL, 25, 2525)
         'encryption' => getenv('SMTP_ENCRYPTION') ?: 'tls', // 'tls', 'ssl', or null (or false)
-        'username' => getenv('SMTP_USERNAME') ?: '7b6e2f360ba77b', // Your SMTP username
-        'password' => getenv('SMTP_PASSWORD') ?: '3dff6d8f3d14cf', // Your SMTP password
+        'username' => getenv('SMTP_USERNAME') ?: 'YOURUSERNAME', // Your SMTP username
+        'password' => getenv('SMTP_PASSWORD') ?: 'YOURPASSWORD', // Your SMTP password
     ],
 
     // Gmail Specific (Using App Password - Less Secure than OAuth2)
